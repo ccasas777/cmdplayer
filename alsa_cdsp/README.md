@@ -1,7 +1,73 @@
-# ALSA CamillaDSP "I/O" plugin - Really an "O" plugin as only Playback (output) is supported.
-This is an ALSA I/O plugin for use with CamillaDSP for audio playback.  It starts a CamillaDSP process and streams data to it via a pipe.  To playback programs it responds like a normal ALSA device.  The actual output device is whatever you configure in the CamillaDSP YAML configuration file.
+# ALSA CamillaDSP playback plugin
 
-To aid in handling hardware parameter changes such as sample rate, format, or the number of input channels the plugin can automatically replace fields in the YAML files with the appropriate parameters and restart CamillaDSP.
+This directory contains a locally maintained copy of the ALSA CamillaDSP
+plugin used by `cmdplay`.
+
+## Upstream project
+
+The original project is:
+
+<https://github.com/scripple/alsa_cdsp>
+
+The code in this directory was originally obtained from that repository. It
+is included here so the `cmdplayer` project can keep the plugin source and its
+configuration together. This copy is not an official release of the upstream
+project.
+
+## Local modifications
+
+The `cmdplayer` copy contains the following changes relative to the upstream
+plugin:
+
+### Safer I/O thread lifecycle
+
+- Tracks whether the I/O thread has been created and still needs to be joined.
+- Joins a previous thread before starting a new one.
+- Avoids joining or signalling an unstarted thread.
+- Handles ALSA stop being called more than once, including stop-after-drop and
+  close of a PCM that never started.
+
+These changes prevent stale thread handles and invalid thread operations during
+pause, restart, and close sequences.
+
+### Immediate CamillaDSP termination on dropped playback
+
+A new ALSA option is supported:
+
+```text
+kill_on_drop yes
+```
+
+When enabled, an undrained stream is treated as dropped. The plugin terminates
+the current CamillaDSP process instead of allowing queued audio to continue
+playing. It first sends `SIGTERM`, waits briefly, and then uses `SIGKILL` if
+necessary.
+
+Normal drain completion is tracked separately, so a normally completed track
+is not treated as a dropped stream.
+
+### Repository integration
+
+The accompanying configuration files are set up for this `cmdplayer`
+installation:
+
+- `config_in.yaml` is a CamillaDSP template using the plugin substitutions.
+- The project-level `asound_cmdplay.conf` defines the `camilladsp` PCM.
+- The project uses a configurable FIFO size and can enable `kill_on_drop`.
+
+Paths such as the CamillaDSP executable, active configuration file, and output
+device are installation-specific and should be reviewed before use.
+
+## Overview
+
+This is an ALSA I/O plugin for use with CamillaDSP for audio playback. It
+starts a CamillaDSP process and streams data to it via a pipe. To playback
+programs it responds like a normal ALSA device. The actual output device is
+whatever you configure in the CamillaDSP YAML configuration file.
+
+To aid in handling hardware parameter changes such as sample rate, format, or
+the number of input channels the plugin can automatically replace fields in
+the YAML files with the appropriate parameters and restart CamillaDSP.
 
 The following substitutions are available for YAML files.  hw_params are the values the playback program chooses when playing a particular audio file or stream.  The "$xxx$" format is the default behavior.  This can be overridden in the .asoundrc file to use custom tokens.
 
