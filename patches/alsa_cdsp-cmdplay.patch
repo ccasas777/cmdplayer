@@ -1,0 +1,116 @@
+--- a/libasound_module_pcm_cdsp.c
++++ b/libasound_module_pcm_cdsp.c
+@@ -143,6 +143,9 @@
+     volatile snd_pcm_uframes_t io_avail_min;
+     pthread_t io_thread;
+     bool io_started;
++    // io_thread was created and not yet joined.  It stays set after the
++    // thread ends by itself, while io_started is cleared then.
++    bool io_joinable;
+ 
+     // ALSA operates on frames, we on bytes
+     size_t frame_size;
+@@ -216,6 +219,11 @@
+     // How long to wait in ms for CamillaDSP to exit after closing the pipe
+     // before it is terminated
+     long stop_timeout;
++    // Terminate CamillaDSP at once when the stream ends without a drain,
++    // instead of letting it play what is still queued
++    bool kill_on_drop;
++    // The last stream was drained to the end
++    bool drained;
+ } cdsp_t;
+ 
+ #define CDSP_N_FORMATS 6
+@@ -737,6 +745,10 @@
+         pthread_kill(pcm->io_thread, SIGIO);
+         return 0;
+     }
++    if (pcm->io_joinable) {
++        pthread_join(pcm->io_thread, NULL);
++        pcm->io_joinable = false;
++    }
+ 
+     // Initialize delay calculation - capture reception begins immediately,
+     // playback transmission begins only when first period has been written
+@@ -752,6 +764,7 @@
+         pcm->io_started = false;
+         return -errno;
+     }
++    pcm->io_joinable = true;
+ 
+     pthread_setname_np(pcm->io_thread, "pcm-io");
+     return 0;
+@@ -761,11 +774,15 @@
+     cdsp_t *pcm = io->private_data;
+     debug("Stopping\n");
+ 
++    // ALSA stops twice on drop + close, and may stop a PCM that never started.
+     if (pcm->io_started) {
+         pcm->io_started = false;
+         pthread_cancel(pcm->io_thread);
+     }
+-    pthread_join(pcm->io_thread, NULL);
++    if (pcm->io_joinable) {
++        pthread_join(pcm->io_thread, NULL);
++        pcm->io_joinable = false;
++    }
+ 
+     pcm->delay_running = false;
+     pcm->delay_pcm_nread = 0;
+@@ -904,6 +921,16 @@
+     }
+ 
+     debug("Stopping Camilla\n");
++    if(pcm->kill_on_drop && !pcm->drained && pcm->cpid != -1) {
++        // Dropped: what is still in the pipe and in CamillaDSP is not wanted.
++        debug("Dropped, terminating Camilla\n");
++        kill(pcm->cpid, SIGTERM);
++        if(wait_camilla(pcm->cpid, 500) < 0) {
++            kill(pcm->cpid, SIGKILL);
++            waitpid(pcm->cpid, NULL, 0);
++        }
++        pcm->cpid = -1;
++    }
+     int close_err = close_transport(pcm) == -1 ? -errno : 0;
+     if(pcm->cpid != -1) {
+         // Wait on CamillaDSP to finish. It needs to free the ALSA
+@@ -959,6 +986,7 @@
+     // initialize ring buffer and status
+     pcm->io_hw_ptr = 0;
+     pcm->io_status = 0;
++    pcm->drained = false;
+ 
+     // The ioplug allocates and configures its channel area buffer when the
+     // HW parameters are fixed, but after calling cdsp_hw_params(). So,
+@@ -988,6 +1016,7 @@
+     // Wait for the playback thread to empty the ring buffer
+     while(pcm->io_status >= 0 && pcm->io_started)
+         usleep(10);
++    pcm->drained = true;
+     // We cannot recover from an error here. By returning zero we ensure that
+     // ioplug stops the pcm. Returning an error code would be interpreted by
+     // ioplug as an incomplete drain and would it leave the pcm running.
+@@ -1060,7 +1089,8 @@
+ 
+     if (enable == 0) {
+         pcm->first_revent = true;
+-        pthread_kill(pcm->io_thread, SIGIO);
++        if (pcm->io_started)
++            pthread_kill(pcm->io_thread, SIGIO);
+     } else {
+         // store current delay value
+         pcm->delay_paused = cdsp_calculate_delay(io);
+@@ -1340,6 +1370,12 @@
+             }
+             continue;
+         }
++        if(strcmp(id, "kill_on_drop") == 0) {
++            if((err = snd_config_get_bool(n)) < 0) goto _err;
++            pcm->kill_on_drop = err;
++            err = 0;
++            continue;
++        }
+         if(strcmp(id, "cpath") == 0) {
+             if((err = snd_config_get_string(n, &temp)) < 0) goto _err;
+             if((err = alloc_copy_string(&pcm->cpath, temp)) < 0) goto _err;

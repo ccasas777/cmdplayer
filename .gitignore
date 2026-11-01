@@ -1,0 +1,11 @@
+# Personal playlist and generated audio/FIR files
+list.txt
+tmp/
+
+# Build outputs
+cmdplay
+src/*.o
+alsa_cdsp/libasound_module_pcm_cdsp.so
+
+# Local/editor files
+.DS_Store
