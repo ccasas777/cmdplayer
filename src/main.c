@@ -170,7 +170,7 @@ static decoder_t *open_decoder(player_t *p, const char *path) {
         l = NULL;
     }
     if (!l) l = preload_start(path, preload_bytes(p));
-    if (preload_done(l)) ui_status("loading %s", path_basename(path));
+    if (!preload_done(l)) ui_status("loading %s", path_basename(path));
     const char *why = NULL;
     blob_t *mem = preload_finish(l, &why);
     if (!mem) ui_dbg("%s: playing from disk: %s", path, why);
@@ -227,7 +227,7 @@ static int start_track(player_t *p, size_t idx, int64_t pos, bool continuous) {
     p->cur = idx;
     p->cur_start = cd_to_frames(t->start_cd, in->rate);
     p->cur_end = t->end_cd >= 0 ? cd_to_frames(t->end_cd, in->rate) : -1;
-    int64_t length = p->cur_end > 0 ? p->cur_end - p->cur_start
+    int64_t length = p->cur_end >= 0 ? p->cur_end - p->cur_start
                    : in->frames >= 0 ? in->frames - p->cur_start : -1;
 
     if (pos < 0) pos = 0;
@@ -504,7 +504,7 @@ static int play(player_t *p, size_t first) {
     double last_status = 0;
     while (!quit_signal) {
         // Short waits while the output plays out, so the drain starts in time.
-        bool idle = p->dec || p->waiting;
+        bool idle = !p->dec || p->waiting;
         int key = ui_read_key(p->paused ? 200 : idle ? 20 : 0);
         if (key != KEY_NONE && !handle_key(p, key)) break;
         double now = now_sec();
@@ -541,23 +541,10 @@ static int play(player_t *p, size_t first) {
             if (left < want) want = (long)left;
         }
         snd_pcm_format_t fmt = out_format(p->out);
-        long n = dec_read(p->dec, p->buf, want, fmt);
-        if (n == 0) {
-            close_decoder(p);
-            bool cue_boundary = p->cur + 1 < p->pl->n
-                && p->pl->items[p->cur].cue_track != 0;
-            if (!advance(p, p->cur + 1, !cue_boundary)) {
-                ui_status("finishing");
-                out_drain_close(p->out);
-                break;
-            }
-            continue;
-        }
-        if (n < 0) {
-            ui_msg("stopping track %zu after a decode error", p->cur + 1);
-            bool cue_boundary = p->cur + 1 < p->pl->n
-                && p->pl->items[p->cur].cue_track != 0;
-            if (!advance(p, p->cur + 1, !cue_boundary)) close_decoder(p);
+        long n = want > 0 ? dec_read(p->dec, p->buf, want, fmt) : 0;
+        if (n <= 0) {
+            if (n < 0) ui_msg("stopping track %zu after a decode error", p->cur + 1);
+            if (!advance(p, p->cur + 1, true)) close_decoder(p);
             continue;
         }
         if (out_write(p->out, p->buf, n) < 0) {

@@ -28,4 +28,3 @@ clean:
 	rm -f cmdplay $(OBJS)
 
 .PHONY: all install uninstall clean
-```[cite: 43]

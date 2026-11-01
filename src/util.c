@@ -169,7 +169,7 @@ char *text_to_utf8(const char *buf, size_t n, const char *encodings,
             memcpy(name, p, len);
             name[len] = '\0';
             char *enc = str_trim(name);
-            char *out = enc ? iconv_whole(buf, n, enc) : NULL;
+            char *out = *enc ? iconv_whole(buf, n, enc) : NULL;
             if (out) {
                 if (used) *used = enc;
                 return out;

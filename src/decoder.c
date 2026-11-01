@@ -262,6 +262,8 @@ static int next_frame(decoder_t *d) {
                     }
                     if (start < d->align_to)
                         d->frame_off = (int)(d->align_to - start);
+                    else
+                        d->pos = start;
                 }
                 d->align_to = -1;
             }

@@ -98,7 +98,7 @@ static char *cue_arg(const char *s, const char **rest) {
 }
 
 static int64_t cue_time(const char *s) {
-    int m, sec, f;
+    unsigned m, sec, f;
     if (sscanf(s, "%u:%u:%u", &m, &sec, &f) != 3) return -1;
     return ((int64_t)m * 60 + sec) * CD_FRAMES_PER_SEC + f;
 }
@@ -202,8 +202,12 @@ static int cue_load(playlist_t *pl, const char *cue_path, const char *encodings,
     // single-file image would continue through the rest of the image.
     for (size_t i = first; i < pl->n; i++) {
         track_t *t = &pl->items[i];
-        if (i + 1 < pl->n && strcmp(pl->items[i + 1].path, t->path) == 0)
-            t->end_cd = pl->items[i + 1].start_cd;
+        for (size_t j = i + 1; j < pl->n && strcmp(pl->items[j].path, t->path) == 0; j++) {
+            if (pl->items[j].start_cd >= 0) {
+                t->end_cd = pl->items[j].start_cd;
+                break;
+            }
+        }
     }
 
     size_t out = first;

@@ -151,7 +151,7 @@ int ui_read_key(int timeout_ms) {
     int c = read_byte(timeout_ms);
     if (c < 0) return KEY_NONE;
     if (c == '\r' || c == '\n') return KEY_ENTER;
-    if (c == 0x7F) return KEY_BACKSPACE;
+    if (c == 0x7F || c == 0x08) return KEY_BACKSPACE;
     if (c != 0x1B) return c;
     // Arrow keys arrive as ESC [ A or ESC O A.
     int c1 = read_byte(30);
