@@ -529,7 +529,16 @@ static int play(player_t *p, size_t first) {
         long want = CHUNK_FRAMES;
         if (p->cur_end >= 0) {
             int64_t left = p->cur_end - dec_pos(p->dec);
-            if (left < want) want = (long)(left > 0 ? left : 0);
+            if (left <= 0) {
+                if (!advance(p, p->cur + 1, true)) {
+                    close_decoder(p);
+                    ui_status("finishing");
+                    out_drain_close(p->out);
+                    break;
+                }
+                continue;
+            }
+            if (left < want) want = (long)left;
         }
         snd_pcm_format_t fmt = out_format(p->out);
         long n = want > 0 ? dec_read(p->dec, p->buf, want, fmt) : 0;
